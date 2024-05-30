@@ -5,6 +5,8 @@ import jakarta.persistence.Index;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
+import java.util.Objects;
+
 @Entity
 @Getter
 @Setter
@@ -15,7 +17,7 @@ import lombok.experimental.FieldDefaults;
 @ToString
 @Table(indexes = {
         @Index(name = "idx_path", columnList = "path")
-} )
+})
 public class Page {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -30,4 +32,17 @@ public class Page {
 
     @Column(columnDefinition = "MEDIUMTEXT")
     String content;
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Page page = (Page) o;
+        return path.equals(page.path);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(path);
+    }
 }

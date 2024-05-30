@@ -13,4 +13,6 @@ public interface WebSiteRepository extends JpaRepository<WebSite, Long> {
     @Transactional
     @Query("DELETE FROM WebSite s WHERE s.url LIKE :url% OR s.name = :name")
     void removeSiteInfo(String url, String name);
+
+
 }

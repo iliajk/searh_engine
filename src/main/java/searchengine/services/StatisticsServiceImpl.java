@@ -14,6 +14,7 @@ import searchengine.dto.statistics.DetailedStatisticsItem;
 import searchengine.dto.statistics.StatisticsData;
 import searchengine.dto.statistics.StatisticsResponse;
 import searchengine.dto.statistics.TotalStatistics;
+import searchengine.model.entities.Page;
 import searchengine.model.entities.WebSite;
 import searchengine.model.enums.Status;
 import searchengine.model.repositories.IndexRepository;
@@ -38,6 +39,8 @@ public class StatisticsServiceImpl implements StatisticsService {
     private final WebSiteRepository webSiteRepository;
     private final Random random = new Random();
     private final IndexingSettings sites;
+    private final int processors = Runtime.getRuntime().availableProcessors();
+    private final ForkJoinPool fjp = new ForkJoinPool(processors);
 
     @Override
     public ResponseEntity<?> getStatistics() {
@@ -83,6 +86,10 @@ public class StatisticsServiceImpl implements StatisticsService {
 
     @Override
     public ResponseEntity<?> startIndexing() {
+        if (fjp.getQueuedTaskCount() > 0) {
+            log.debug("Indexing is not finished. Task in Queue left " + fjp.getQueuedTaskCount());
+            return ResponseEntity.ok("\"Indexing is not finished. Task in Queue left \" + fjp.getQueuedTaskCount()");
+        }
         List<WebSite> webSiteList = new ArrayList<>();
         readConfig();
         for (Site site : sites.getSites()) {
@@ -103,9 +110,15 @@ public class StatisticsServiceImpl implements StatisticsService {
             webSiteList.add(webSite);
         }
         // we are going through all pages of site List
-        int processors = Runtime.getRuntime().availableProcessors();
-        ForkJoinPool fjp = new ForkJoinPool(processors);
-
+        List<WebSiteRecursiveTask> listOfRecursTasks = new ArrayList<>();
+        Set<Page> totalPages = new HashSet<>();
+        for (WebSite webSite : webSiteList) {
+            WebSiteRecursiveTask webSiteRecursiveTask = new WebSiteRecursiveTask(webSite, webSite.getUrl());
+            listOfRecursTasks.add(webSiteRecursiveTask);
+            fjp.execute(webSiteRecursiveTask);
+            totalPages.addAll(webSiteRecursiveTask.join());
+        }
+        pageRepository.saveAll(totalPages);
         return null;
     }
 
@@ -115,6 +128,7 @@ public class StatisticsServiceImpl implements StatisticsService {
         sites.setSites(new ArrayList<>());
         ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
         try {
+            log.debug("Start reading config file");
             Config config = mapper.readValue(new File("src/main/resources/config.yaml"), Config.class);
             if (config != null) {
                 for (Site site : config.getIndexingSettings().getSites()) {

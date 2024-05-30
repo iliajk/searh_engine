@@ -21,12 +21,9 @@ public class WebSite {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     Long id;
-
     Status status;
-
     @UpdateTimestamp
     LocalDateTime statusTime;
-
     @Column(columnDefinition = "text")
     String last_error;
     @Column(columnDefinition = "VARCHAR(255)")
