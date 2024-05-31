@@ -1,6 +1,7 @@
 package searchengine.services;
 
 import lombok.extern.slf4j.Slf4j;
+import org.jsoup.HttpStatusException;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
@@ -40,6 +41,7 @@ public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
         HashSet<String> localLinkSet = new HashSet<>();
         // array of future fork of recursive tasks
         ArrayList<WebSiteRecursiveTask> arrayOfTasks = new ArrayList<>();
+
         // here we will get content of page, create page entity and add it in local pages
         try {
             document = Jsoup.connect(link).get();
@@ -52,33 +54,43 @@ public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
                     .build();
             localPages.add(currentPage);
         } catch (IOException e) {
-            log.error("Cannot get information through link: " + link + " error: " + e.getMessage());
-            return new HashSet<>();
+            document = null;
+            String error = "Cannot get information through link: " + link + " error: " + e.getMessage();
+            log.error(error);
+            Page currentPage = Page.builder()
+                    .webSite(webSite)
+                    .code(((HttpStatusException) e).getStatusCode())
+                    .path(link)
+                    .content(e.getMessage())
+                    .build();
+            localPages.add(currentPage);
         }
         // search all href in document
-        Elements elements = document.select("a[href]");
-        elements.forEach((e) -> {
-            String str = e.attr("href");
-            if (str.matches(WEBLINKREG)) {
-                if (!totalLinksSet.contains(str)) {
-                    localLinkSet.add(str);
-                    totalLinksSet.add(str);
+        if (document != null) {
+            Elements elements = document.select("a[href]");
+            elements.forEach((e) -> {
+                String str = e.attr("href");
+                if (str.matches(WEBLINKREG)) {
+                    if (!totalLinksSet.contains(str)) {
+                        localLinkSet.add(str);
+                        totalLinksSet.add(str);
+                    }
+                } else if (str.matches(SUBDOMAINLINK)) {
+                    str = webSite.getUrl() + e.attr("href");
+                    if (!totalLinksSet.contains(str)) {
+                        localLinkSet.add(str);
+                        totalLinksSet.add(str);
+                    }
                 }
-            } else if (str.matches(SUBDOMAINLINK)) {
-                str = webSite.getUrl() + e.attr("href");
-                if (!totalLinksSet.contains(str)) {
-                    localLinkSet.add(str);
-                    totalLinksSet.add(str);
-                }
-            }
-        });
-        if (!localLinkSet.isEmpty()) {
-            localLinkSet.forEach(link -> {
-                WebSiteRecursiveTask task = new WebSiteRecursiveTask(this.webSite, link);
-                task.fork();
-                arrayOfTasks.add(task);
             });
-            arrayOfTasks.forEach((task) -> localPages.addAll(task.join()));
+            if (!localLinkSet.isEmpty()) {
+                localLinkSet.forEach(link -> {
+                    WebSiteRecursiveTask task = new WebSiteRecursiveTask(this.webSite, link);
+                    task.fork();
+                    arrayOfTasks.add(task);
+                });
+                arrayOfTasks.forEach((task) -> localPages.addAll(task.join()));
+            }
         }
         return localPages;
     }

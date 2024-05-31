@@ -128,15 +128,26 @@ public class StatisticsServiceImpl implements StatisticsService {
         });
         updateWebSiteTimeIndexing.start();
         for (WebSite webSite : webSiteList) {
-            WebSiteRecursiveTask webSiteRecursiveTask = new WebSiteRecursiveTask(webSite, webSite.getUrl());
-
-            listOfRecursTasks.add(webSiteRecursiveTask);
-            fjp.execute(webSiteRecursiveTask);
-            totalPages.addAll(webSiteRecursiveTask.join());
-
+            try {
+                WebSiteRecursiveTask webSiteRecursiveTask = new WebSiteRecursiveTask(webSite, webSite.getUrl());
+                listOfRecursTasks.add(webSiteRecursiveTask);
+                fjp.execute(webSiteRecursiveTask);
+                totalPages.addAll(webSiteRecursiveTask.join());
+                webSite.setStatus(Status.INDEXED);
+            } catch (Throwable e) {
+                log.error(e.getMessage());
+                webSite.setStatus(Status.FAILED);
+                webSite.setLast_error(e.getMessage());
+            }
         }
+        totalPages.forEach(page -> {
+            if(page.getCode() != 200){
+                page.getWebSite().setLast_error(page.getContent());
+            }
+        });
         updateWebSiteTimeIndexing.interrupt();
         pageRepository.saveAll(totalPages);
+        webSiteRepository.saveAll(webSiteList);
         return null;
     }
 
