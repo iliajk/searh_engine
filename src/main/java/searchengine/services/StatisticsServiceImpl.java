@@ -33,6 +33,7 @@ import java.util.concurrent.ForkJoinPool;
 @EnableTransactionManagement
 @Slf4j
 public class StatisticsServiceImpl implements StatisticsService {
+    private static final Long UPDATE_INDEXING_TIME = 1000L;
     private final IndexRepository indexRepository;
     private final LemmaRepository lemmaRepository;
     private final PageRepository pageRepository;
@@ -112,12 +113,29 @@ public class StatisticsServiceImpl implements StatisticsService {
         // we are going through all pages of site List
         List<WebSiteRecursiveTask> listOfRecursTasks = new ArrayList<>();
         Set<Page> totalPages = new HashSet<>();
+        Thread updateWebSiteTimeIndexing = new Thread(() -> {
+            do {
+                try {
+                    for (WebSite site : webSiteList) {
+                        site.setStatusTime(LocalDateTime.now());
+                    }
+                    webSiteRepository.saveAll(webSiteList);
+                    Thread.sleep(UPDATE_INDEXING_TIME);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            } while (true);
+        });
+        updateWebSiteTimeIndexing.start();
         for (WebSite webSite : webSiteList) {
             WebSiteRecursiveTask webSiteRecursiveTask = new WebSiteRecursiveTask(webSite, webSite.getUrl());
+
             listOfRecursTasks.add(webSiteRecursiveTask);
             fjp.execute(webSiteRecursiveTask);
             totalPages.addAll(webSiteRecursiveTask.join());
+
         }
+        updateWebSiteTimeIndexing.interrupt();
         pageRepository.saveAll(totalPages);
         return null;
     }

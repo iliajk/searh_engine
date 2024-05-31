@@ -20,7 +20,7 @@ import java.util.Objects;
 })
 public class Page {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.AUTO)
     Long id;
 
     @ManyToOne
