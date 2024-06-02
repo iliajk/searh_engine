@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
@@ -27,12 +28,17 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
 @EnableTransactionManagement
 @Slf4j
 public class StatisticsServiceImpl implements StatisticsService {
+    @Value("${jsoup.useragent}")
+    private String USERAGENT;
+    @Value("${jsoup.referrer}")
+    private String REFERRER;
     private static final Long UPDATE_INDEXING_TIME = 1000L;
     private final IndexRepository indexRepository;
     private final LemmaRepository lemmaRepository;
@@ -41,7 +47,9 @@ public class StatisticsServiceImpl implements StatisticsService {
     private final Random random = new Random();
     private final IndexingSettings sites;
     private final int processors = Runtime.getRuntime().availableProcessors();
-    private final ForkJoinPool fjp = new ForkJoinPool(processors);
+    private ForkJoinPool fjp = new ForkJoinPool(processors);
+    private static volatile Boolean indexingInProgress = false;
+    //private static volatile Boolean updatingStatusTime = true;
 
     @Override
     public ResponseEntity<?> getStatistics() {
@@ -87,12 +95,15 @@ public class StatisticsServiceImpl implements StatisticsService {
 
     @Override
     public ResponseEntity<?> startIndexing() {
-        if (fjp.getQueuedTaskCount() > 0) {
-            log.debug("Indexing is not finished. Task in Queue left " + fjp.getQueuedTaskCount());
-            return ResponseEntity.ok("\"Indexing is not finished. Task in Queue left \" + fjp.getQueuedTaskCount()");
+        if (indexingInProgress) {
+            return ResponseEntity.badRequest().body(Map.of("result", "false", "error", "Indexing already started"));
+        }
+        if (fjp.isShutdown()) {
+            fjp = new ForkJoinPool(processors);
         }
         List<WebSite> webSiteList = new ArrayList<>();
         readConfig();
+        indexingInProgress = true;
         for (Site site : sites.getSites()) {
             // removing all data about site (records from site and page tables)
             String url = site.getUrl();
@@ -103,7 +114,7 @@ public class StatisticsServiceImpl implements StatisticsService {
             WebSite webSite = WebSite.builder()
                     .statusTime(LocalDateTime.now())
                     .last_error(null)
-                    .status(Status.INDEXING)
+                    .status(null)
                     .url(url)
                     .name(name)
                     .build();
@@ -111,44 +122,56 @@ public class StatisticsServiceImpl implements StatisticsService {
             webSiteList.add(webSite);
         }
         // we are going through all pages of site List
-        List<WebSiteRecursiveTask> listOfRecursTasks = new ArrayList<>();
+        WebSiteRecursiveTask.USERAGENT = USERAGENT;
+        WebSiteRecursiveTask.REFERRER = REFERRER;
         Set<Page> totalPages = new HashSet<>();
-        Thread updateWebSiteTimeIndexing = new Thread(() -> {
-            do {
-                try {
-                    for (WebSite site : webSiteList) {
-                        site.setStatusTime(LocalDateTime.now());
-                    }
-                    webSiteRepository.saveAll(webSiteList);
-                    Thread.sleep(UPDATE_INDEXING_TIME);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-            } while (true);
-        });
-        updateWebSiteTimeIndexing.start();
+
         for (WebSite webSite : webSiteList) {
             try {
                 WebSiteRecursiveTask webSiteRecursiveTask = new WebSiteRecursiveTask(webSite, webSite.getUrl());
-                listOfRecursTasks.add(webSiteRecursiveTask);
+                WebSiteRecursiveTask.setWebSiteRepository(webSiteRepository);
                 fjp.execute(webSiteRecursiveTask);
                 totalPages.addAll(webSiteRecursiveTask.join());
                 webSite.setStatus(Status.INDEXED);
+                webSiteRepository.save(webSite);
             } catch (Throwable e) {
                 log.error(e.getMessage());
                 webSite.setStatus(Status.FAILED);
                 webSite.setLast_error(e.getMessage());
+                webSiteRepository.save(webSite);
             }
         }
         totalPages.forEach(page -> {
-            if(page.getCode() != 200){
+            if (page.getCode() != 200) {
                 page.getWebSite().setLast_error(page.getContent());
             }
         });
-        updateWebSiteTimeIndexing.interrupt();
+
         pageRepository.saveAll(totalPages);
-        webSiteRepository.saveAll(webSiteList);
-        return null;
+        indexingInProgress = false;
+        return ResponseEntity.ok(true);
+    }
+
+    @Override
+    public ResponseEntity<?> stopIndexing() {
+        if (!indexingInProgress) {
+            return ResponseEntity.badRequest().body(Map.of("result", "false", "error", "Indexing is not running"));
+        }
+        indexingInProgress = false;
+        fjp.shutdown();
+        try {
+            // waiting until it will be finished
+            if (!fjp.awaitTermination(60, TimeUnit.SECONDS)) {
+                fjp.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            String error = "Problem with stopping ForkJoinPool, please check error: " + e.getMessage();
+            log.error(error);
+            return ResponseEntity.badRequest().body(Map.of("result", "false", "error", error));
+        }
+        WebSiteRecursiveTask.resetTotalLinkSet();
+        return ResponseEntity.ok(true);
+
     }
 
 

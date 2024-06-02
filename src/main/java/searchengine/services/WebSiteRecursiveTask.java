@@ -7,23 +7,28 @@ import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
 import searchengine.model.entities.Page;
 import searchengine.model.entities.WebSite;
+import searchengine.model.enums.Status;
+import searchengine.model.repositories.WebSiteRepository;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.concurrent.RecursiveTask;
 
 @Slf4j
 public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
-
+    public static WebSiteRepository webSiteRepository;
+    public static String USERAGENT;
+    public static String REFERRER;
     // all link which we found
-    private static final HashSet<String> totalLinksSet = new HashSet<>();
+    private static HashSet<String> totalLinksSet = new HashSet<>();
     // regular expression for web link https://www.subdomian.domain.domainzone/....
     private final String WEBLINKREG;
     // regular expression for situation when we get href from website and receive "/something"
     private final String SUBDOMAINLINK = "/([a-zA-Z\\d/_\\-]?+){1,}/?";
     // main website provided recursive task
-    private final WebSite webSite;
+    private WebSite webSite;
     private final String link;
 
     public WebSiteRecursiveTask(WebSite webSite, String link) {
@@ -42,10 +47,23 @@ public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
         // array of future fork of recursive tasks
         ArrayList<WebSiteRecursiveTask> arrayOfTasks = new ArrayList<>();
 
+        //add some delay for passing security of some web-sites
+        try {
+            long milisec =  500L + (long) (4500 * Math.random());
+            Thread.sleep(milisec);
+        } catch (InterruptedException e) {
+            log.error(e.getMessage());
+        }
+        webSite.setStatusTime(LocalDateTime.now());
+        webSite.setStatus(Status.INDEXING);
+        webSite = webSiteRepository.save(webSite);
         // here we will get content of page, create page entity and add it in local pages
         try {
-            document = Jsoup.connect(link).get();
-            String content = document.text();
+            document = Jsoup.connect(link)
+                    .userAgent(USERAGENT)
+                    .referrer(REFERRER)
+                    .get();
+            String content = document.outerHtml();
             Page currentPage = Page.builder()
                     .webSite(webSite)
                     .code(200)
@@ -56,7 +74,7 @@ public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
         } catch (IOException e) {
             document = null;
             String error = "Cannot get information through link: " + link + " error: " + e.getMessage();
-            log.error(error);
+            log.info(error);
             Page currentPage = Page.builder()
                     .webSite(webSite)
                     .code(((HttpStatusException) e).getStatusCode())
@@ -93,5 +111,11 @@ public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
             }
         }
         return localPages;
+    }
+    public static void setWebSiteRepository(WebSiteRepository webSiteRepository) {
+        WebSiteRecursiveTask.webSiteRepository = webSiteRepository;
+    }
+    public static void resetTotalLinkSet(){
+        totalLinksSet = new HashSet<>();
     }
 }

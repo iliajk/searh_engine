@@ -11,9 +11,12 @@ spring:
         dialect: org.hibernate.dialect.MySQL8Dialect
     hibernate:
       ddl-auto: update
-    show-sql: true
+    show-sql: false
 springdoc:
   api-docs:
     path: /api-docs
 swagger-ui:
   path: /swagger-ui.html
+jsoup:
+  useragent: search-engine-bot / 1.0 (https://linkedin.com/in/ilyajk/ ; https://github.com/iliajk)
+  referrer: https://www.google.com

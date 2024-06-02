@@ -6,4 +6,6 @@ public interface StatisticsService {
     ResponseEntity<?> getStatistics();
 
     ResponseEntity<?> startIndexing();
+
+    ResponseEntity<?> stopIndexing();
 }
