@@ -8,4 +8,6 @@ public interface StatisticsService {
     ResponseEntity<?> startIndexing();
 
     ResponseEntity<?> stopIndexing();
+
+    ResponseEntity<?> indexPage(String url);
 }

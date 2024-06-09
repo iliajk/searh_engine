@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jsoup.HttpStatusException;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -22,13 +25,18 @@ import searchengine.model.repositories.IndexRepository;
 import searchengine.model.repositories.LemmaRepository;
 import searchengine.model.repositories.PageRepository;
 import searchengine.model.repositories.WebSiteRepository;
+import searchengine.utils.WebSiteRecursiveTask;
 
 import java.io.File;
 import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -49,6 +57,10 @@ public class StatisticsServiceImpl implements StatisticsService {
     private final int processors = Runtime.getRuntime().availableProcessors();
     private ForkJoinPool fjp = new ForkJoinPool(processors);
     private static volatile Boolean indexingInProgress = false;
+    private final static String DOMAINREGX = "([a-zA-Z0-9-]{1,123}\\.[a-zA-Z]{2,63})$";
+    private final static String LINKREGX = "(https?://)?(www\\.)?([a-zA-Z1-9]{1,63}\\.){1,123}[a-zA-Z1-9]{2,8}/?.+";
+    private final static String HTTP = "(http://).+";
+    private final static String HTTPS = "(https://).+";
     //private static volatile Boolean updatingStatusTime = true;
 
     @Override
@@ -173,6 +185,93 @@ public class StatisticsServiceImpl implements StatisticsService {
         return ResponseEntity.ok(true);
 
     }
+
+    @Override
+    public ResponseEntity<?> indexPage(String url) {
+        boolean webSiteListContainsPage = false;
+        String domain = null;
+        if (indexingInProgress) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "result", "false",
+                    "error", "Indexing already started"));
+        }
+        if (!url.matches(LINKREGX)) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "result", "false",
+                    "error", "Wrong link type, it should looks like http(s)://www.subdomain.domain.zone/abc..."));
+        }
+        domain = extractDomain(url);
+        List<WebSite> webSiteList = webSiteRepository.findAll();
+        WebSite currentWebSite = null;
+        // is page links contain url domain
+        for (WebSite webSite : webSiteList) {
+            if (webSite.getUrl().contains(domain)) {
+                webSiteListContainsPage = true;
+                currentWebSite = webSite;
+                break;
+            }
+        }
+
+        // start indexing page
+        if (webSiteListContainsPage) {
+            indexingInProgress = true;
+            Page currentPage;
+            try {
+                if(!url.matches(HTTP) && !url.matches(HTTPS)){
+                    url = "https://" + url;
+                }
+                Document document = Jsoup.connect(url)
+                        .userAgent(USERAGENT)
+                        .referrer(REFERRER)
+                        .get();
+                String content = document.outerHtml();
+                currentPage = Page.builder()
+                        .webSite(currentWebSite)
+                        .code(200)
+                        .path(url)
+                        .content(content)
+                        .build();
+            } catch (IOException e) {
+                String error = "Cannot get information through link: " + url + " error: " + e.getMessage();
+                log.info(error);
+                currentPage = Page.builder()
+                        .webSite(currentWebSite)
+                        .code(((HttpStatusException) e).getStatusCode())
+                        .path(url)
+                        .content(e.getMessage())
+                        .build();
+            }
+            pageRepository.save(currentPage);
+
+        } else {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "result", "false",
+                    "error", "This Url is located out of bound web sites, specified in configuration file"));
+        }
+        indexingInProgress = false;
+        return ResponseEntity.ok(Map.of("result", true));
+    }
+    // extracts domain and zone from any link
+    public static String extractDomain(String link) {
+        String domain = link.replaceAll("\\?", "");
+        try {
+            if (!domain.matches(HTTP) && !domain.matches(HTTPS)){
+                domain = "https://" + domain;
+            }
+            URL url = new URL(domain);
+            String host = url.getHost();
+            Pattern pattern = Pattern.compile(DOMAINREGX);
+            Matcher matcher = pattern.matcher(host);
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+            return "Domain not found";
+        } catch (MalformedURLException e) {
+            log.error(e.getMessage());
+            return "";
+        }
+    }
+
 
 
     private void readConfig() {
