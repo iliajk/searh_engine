@@ -8,7 +8,9 @@ import org.jsoup.select.Elements;
 import searchengine.model.entities.Page;
 import searchengine.model.entities.WebSite;
 import searchengine.model.enums.Status;
+import searchengine.model.repositories.LemmaRepository;
 import searchengine.model.repositories.WebSiteRepository;
+import searchengine.services.MorphologyService;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -18,7 +20,9 @@ import java.util.concurrent.RecursiveTask;
 
 @Slf4j
 public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
-    public static WebSiteRepository webSiteRepository;
+    private static WebSiteRepository webSiteRepository;
+
+    private static LemmaRepository lemmaRepository;
     public static String USERAGENT;
     public static String REFERRER;
     // all link which we found
@@ -26,7 +30,7 @@ public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
     // regular expression for web link https://www.subdomian.domain.domainzone/....
     private final String WEBLINKREG;
     // regular expression for situation when we get href from website and receive "/something"
-    private final String SUBDOMAINLINK = "/([a-zA-Z\\d/_\\-]?+){1,}/?";
+    private final String SUBDOMAINLINK = "/([a-zA-Z\\d/_\\-]?+)+/?";
     // main website provided recursive task
     private WebSite webSite;
     private final String link;
@@ -49,7 +53,7 @@ public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
 
         //add some delay for passing security of some web-sites
         try {
-            long milisec =  500L + (long) (4500 * Math.random());
+            long milisec = 500L + (long) (4500 * Math.random());
             Thread.sleep(milisec);
         } catch (InterruptedException e) {
             log.error(e.getMessage());
@@ -71,6 +75,7 @@ public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
                     .content(content)
                     .build();
             localPages.add(currentPage);
+            MorphologyService.processPage(content, webSite, link);
         } catch (IOException e) {
             document = null;
             String error = "Cannot get information through link: " + link + " error: " + e.getMessage();
@@ -94,7 +99,9 @@ public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
                         totalLinksSet.add(str);
                     }
                 } else if (str.matches(SUBDOMAINLINK)) {
-                    str = webSite.getUrl() + e.attr("href");
+                    str = str.charAt(0) == '/' ?
+                            webSite.getUrl() + str.substring(1) :
+                            webSite.getUrl() + str;
                     if (!totalLinksSet.contains(str)) {
                         localLinkSet.add(str);
                         totalLinksSet.add(str);
@@ -115,7 +122,10 @@ public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
     public static void setWebSiteRepository(WebSiteRepository webSiteRepository) {
         WebSiteRecursiveTask.webSiteRepository = webSiteRepository;
     }
-    public static void resetTotalLinkSet(){
+    public static void setLemmaRepository(LemmaRepository lemmaRepository) {
+        WebSiteRecursiveTask.lemmaRepository = lemmaRepository;
+    }
+    public static void resetTotalLinkSet() {
         totalLinksSet = new HashSet<>();
     }
 }

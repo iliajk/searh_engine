@@ -47,8 +47,6 @@ public class StatisticsServiceImpl implements StatisticsService {
     private String USERAGENT;
     @Value("${jsoup.referrer}")
     private String REFERRER;
-    private static final Long UPDATE_INDEXING_TIME = 1000L;
-    private final IndexRepository indexRepository;
     private final LemmaRepository lemmaRepository;
     private final PageRepository pageRepository;
     private final WebSiteRepository webSiteRepository;
@@ -120,6 +118,7 @@ public class StatisticsServiceImpl implements StatisticsService {
             // removing all data about site (records from site and page tables)
             String url = site.getUrl();
             String name = site.getName();
+            lemmaRepository.removeAllLemmasOfSite(url);
             pageRepository.removeAllPagesOfSite(url, name);
             webSiteRepository.removeSiteInfo(url, name);
             // creating in table Site new record with status Indexing
@@ -142,12 +141,13 @@ public class StatisticsServiceImpl implements StatisticsService {
             try {
                 WebSiteRecursiveTask webSiteRecursiveTask = new WebSiteRecursiveTask(webSite, webSite.getUrl());
                 WebSiteRecursiveTask.setWebSiteRepository(webSiteRepository);
+                WebSiteRecursiveTask.setLemmaRepository(lemmaRepository);
                 fjp.execute(webSiteRecursiveTask);
                 totalPages.addAll(webSiteRecursiveTask.join());
                 webSite.setStatus(Status.INDEXED);
                 webSiteRepository.save(webSite);
             } catch (Throwable e) {
-                log.error(e.getMessage());
+                log.error(Arrays.toString(e.getStackTrace()));
                 webSite.setStatus(Status.FAILED);
                 webSite.setLast_error(e.getMessage());
                 webSiteRepository.save(webSite);
@@ -161,6 +161,8 @@ public class StatisticsServiceImpl implements StatisticsService {
 
         pageRepository.saveAll(totalPages);
         indexingInProgress = false;
+        WebSiteRecursiveTask.resetTotalLinkSet();
+        log.info("Indexing finished successfully");
         return ResponseEntity.ok(true);
     }
 
@@ -189,7 +191,7 @@ public class StatisticsServiceImpl implements StatisticsService {
     @Override
     public ResponseEntity<?> indexPage(String url) {
         boolean webSiteListContainsPage = false;
-        String domain = null;
+        String domain;
         if (indexingInProgress) {
             return ResponseEntity.badRequest().body(Map.of(
                     "result", "false",
@@ -217,7 +219,7 @@ public class StatisticsServiceImpl implements StatisticsService {
             indexingInProgress = true;
             Page currentPage;
             try {
-                if(!url.matches(HTTP) && !url.matches(HTTPS)){
+                if (!url.matches(HTTP) && !url.matches(HTTPS)) {
                     url = "https://" + url;
                 }
                 Document document = Jsoup.connect(url)
@@ -231,6 +233,7 @@ public class StatisticsServiceImpl implements StatisticsService {
                         .path(url)
                         .content(content)
                         .build();
+                MorphologyService.processPage(content, currentWebSite, url);
             } catch (IOException e) {
                 String error = "Cannot get information through link: " + url + " error: " + e.getMessage();
                 log.info(error);
@@ -251,11 +254,12 @@ public class StatisticsServiceImpl implements StatisticsService {
         indexingInProgress = false;
         return ResponseEntity.ok(Map.of("result", true));
     }
+
     // extracts domain and zone from any link
-    public static String extractDomain(String link) {
+    protected static String extractDomain(String link) {
         String domain = link.replaceAll("\\?", "");
         try {
-            if (!domain.matches(HTTP) && !domain.matches(HTTPS)){
+            if (!domain.matches(HTTP) && !domain.matches(HTTPS)) {
                 domain = "https://" + domain;
             }
             URL url = new URL(domain);
@@ -267,11 +271,10 @@ public class StatisticsServiceImpl implements StatisticsService {
             }
             return "Domain not found";
         } catch (MalformedURLException e) {
-            log.error(e.getMessage());
+            log.error(Arrays.toString(e.getStackTrace()));
             return "";
         }
     }
-
 
 
     private void readConfig() {
@@ -289,7 +292,7 @@ public class StatisticsServiceImpl implements StatisticsService {
             }
         } catch (IOException e) {
             e.printStackTrace();
-            log.error("Problem with reading config file. " + e.getMessage());
+            log.error("Problem with reading config file. " + Arrays.toString(e.getStackTrace()));
         }
     }
 }

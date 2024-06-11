@@ -7,6 +7,7 @@ import org.hibernate.annotations.UpdateTimestamp;
 import searchengine.model.enums.Status;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 @Entity
 @Getter
@@ -19,7 +20,7 @@ import java.time.LocalDateTime;
 @Table(name = "site")
 public class WebSite {
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.AUTO)
     Long id;
     Status status;
     @UpdateTimestamp
@@ -30,5 +31,16 @@ public class WebSite {
     String name;
     @Column(columnDefinition = "VARCHAR(255)")
     String url;
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        WebSite webSite = (WebSite) o;
+        return name.equals(webSite.name) && url.equals(webSite.url);
+    }
 
+    @Override
+    public int hashCode() {
+        return Objects.hash(name, url);
+    }
 }
