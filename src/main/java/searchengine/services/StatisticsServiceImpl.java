@@ -50,6 +50,7 @@ public class StatisticsServiceImpl implements StatisticsService {
     private final LemmaRepository lemmaRepository;
     private final PageRepository pageRepository;
     private final WebSiteRepository webSiteRepository;
+    private final IndexRepository indexRepository;
     private final Random random = new Random();
     private final IndexingSettings sites;
     private final int processors = Runtime.getRuntime().availableProcessors();
@@ -114,13 +115,14 @@ public class StatisticsServiceImpl implements StatisticsService {
         List<WebSite> webSiteList = new ArrayList<>();
         readConfig();
         indexingInProgress = true;
+        // removing all data about sites (site records. pages, lemmas, indexes)
+        indexRepository.removeAll();
+        lemmaRepository.removeAll();
+        pageRepository.removeAll();
+        webSiteRepository.removeAll();
         for (Site site : sites.getSites()) {
-            // removing all data about site (records from site and page tables)
             String url = site.getUrl();
             String name = site.getName();
-            lemmaRepository.removeAllLemmasOfSite(url);
-            pageRepository.removeAllPagesOfSite(url, name);
-            webSiteRepository.removeSiteInfo(url, name);
             // creating in table Site new record with status Indexing
             WebSite webSite = WebSite.builder()
                     .statusTime(LocalDateTime.now())
@@ -135,10 +137,11 @@ public class StatisticsServiceImpl implements StatisticsService {
         // we are going through all pages of site List
         WebSiteRecursiveTask.USERAGENT = USERAGENT;
         WebSiteRecursiveTask.REFERRER = REFERRER;
-        Set<Page> totalPages = new HashSet<>();
+        Set<Page> totalPages;
 
         for (WebSite webSite : webSiteList) {
             try {
+                totalPages = new HashSet<>();
                 WebSiteRecursiveTask webSiteRecursiveTask = new WebSiteRecursiveTask(webSite, webSite.getUrl());
                 WebSiteRecursiveTask.setWebSiteRepository(webSiteRepository);
                 WebSiteRecursiveTask.setLemmaRepository(lemmaRepository);
@@ -146,6 +149,14 @@ public class StatisticsServiceImpl implements StatisticsService {
                 totalPages.addAll(webSiteRecursiveTask.join());
                 webSite.setStatus(Status.INDEXED);
                 webSiteRepository.save(webSite);
+                totalPages.forEach(page -> {
+                    if (page.getCode() != 200) {
+                        page.getWebSite().setLast_error(page.getContent());
+                        webSiteRepository.save(page.getWebSite());
+                    }
+                });
+                List<Page> repoPages = pageRepository.saveAll(totalPages);
+                repoPages.forEach(MorphologyService::processPage);
             } catch (Throwable e) {
                 log.error(Arrays.toString(e.getStackTrace()));
                 webSite.setStatus(Status.FAILED);
@@ -153,15 +164,10 @@ public class StatisticsServiceImpl implements StatisticsService {
                 webSiteRepository.save(webSite);
             }
         }
-        totalPages.forEach(page -> {
-            if (page.getCode() != 200) {
-                page.getWebSite().setLast_error(page.getContent());
-            }
-        });
 
-        pageRepository.saveAll(totalPages);
-        indexingInProgress = false;
         WebSiteRecursiveTask.resetTotalLinkSet();
+        indexingInProgress = false;
+
         log.info("Indexing finished successfully");
         return ResponseEntity.ok(true);
     }
@@ -203,6 +209,7 @@ public class StatisticsServiceImpl implements StatisticsService {
                     "error", "Wrong link type, it should looks like http(s)://www.subdomain.domain.zone/abc..."));
         }
         domain = extractDomain(url);
+        readConfig();
         List<WebSite> webSiteList = webSiteRepository.findAll();
         WebSite currentWebSite = null;
         // is page links contain url domain
@@ -233,7 +240,6 @@ public class StatisticsServiceImpl implements StatisticsService {
                         .path(url)
                         .content(content)
                         .build();
-                MorphologyService.processPage(content, currentWebSite, url);
             } catch (IOException e) {
                 String error = "Cannot get information through link: " + url + " error: " + e.getMessage();
                 log.info(error);
@@ -244,8 +250,8 @@ public class StatisticsServiceImpl implements StatisticsService {
                         .content(e.getMessage())
                         .build();
             }
-            pageRepository.save(currentPage);
-
+            currentPage = pageRepository.save(currentPage);
+            MorphologyService.processPage(currentPage);
         } else {
             return ResponseEntity.badRequest().body(Map.of(
                     "result", "false",
@@ -256,7 +262,7 @@ public class StatisticsServiceImpl implements StatisticsService {
     }
 
     // extracts domain and zone from any link
-    protected static String extractDomain(String link) {
+    private static String extractDomain(String link) {
         String domain = link.replaceAll("\\?", "");
         try {
             if (!domain.matches(HTTP) && !domain.matches(HTTPS)) {

@@ -64,6 +64,12 @@ public class StatisticsServiceImplTest {
         urls.add("domain.zone/?dasdasdasfaf/");
         urls.add("domain.zone");
         urls.add("subdomain.domain.zone");
+        urls.add("http://www.domain.zone");
+        urls.add("http://www.subdomain.domain.zone");
+        urls.add("http://www.subdomain.domain.zone/asd");
+        urls.add("https://www.domain.zone");
+        urls.add("https://www.subdomain.domain.zone");
+        urls.add("https://www.subdomain.domain.zone/asd/");
         Class<?> reflection = StatisticsServiceImpl.class;
         Method method = reflection.getDeclaredMethod("extractDomain", String.class);
         method.setAccessible(true);

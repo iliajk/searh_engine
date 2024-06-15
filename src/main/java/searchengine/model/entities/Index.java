@@ -16,7 +16,7 @@ import lombok.experimental.FieldDefaults;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class Index {
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     Long Id;
 
     @ManyToOne
@@ -26,6 +26,6 @@ public class Index {
     Lemma lemma;
 
     @Column(name = "`rank`")
-    Float rank;
+    Integer rank;
 
 }

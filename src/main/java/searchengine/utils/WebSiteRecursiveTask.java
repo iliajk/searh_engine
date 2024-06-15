@@ -10,7 +10,6 @@ import searchengine.model.entities.WebSite;
 import searchengine.model.enums.Status;
 import searchengine.model.repositories.LemmaRepository;
 import searchengine.model.repositories.WebSiteRepository;
-import searchengine.services.MorphologyService;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -21,7 +20,6 @@ import java.util.concurrent.RecursiveTask;
 @Slf4j
 public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
     private static WebSiteRepository webSiteRepository;
-
     private static LemmaRepository lemmaRepository;
     public static String USERAGENT;
     public static String REFERRER;
@@ -75,7 +73,6 @@ public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
                     .content(content)
                     .build();
             localPages.add(currentPage);
-            MorphologyService.processPage(content, webSite, link);
         } catch (IOException e) {
             document = null;
             String error = "Cannot get information through link: " + link + " error: " + e.getMessage();
@@ -99,7 +96,8 @@ public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
                         totalLinksSet.add(str);
                     }
                 } else if (str.matches(SUBDOMAINLINK)) {
-                    str = str.charAt(0) == '/' ?
+                    String siteUrl = webSite.getUrl();
+                    str = str.charAt(0) == '/' && siteUrl.charAt(siteUrl.length() - 1) == '/'?
                             webSite.getUrl() + str.substring(1) :
                             webSite.getUrl() + str;
                     if (!totalLinksSet.contains(str)) {

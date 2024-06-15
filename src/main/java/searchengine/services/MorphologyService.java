@@ -10,8 +10,9 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import searchengine.model.entities.Index;
 import searchengine.model.entities.Lemma;
-import searchengine.model.entities.WebSite;
+import searchengine.model.entities.Page;
 import searchengine.model.repositories.IndexRepository;
 import searchengine.model.repositories.LemmaRepository;
 
@@ -25,11 +26,11 @@ public class MorphologyService {
     private final LemmaRepository lemmaRepository;
     private final IndexRepository indexRepository;
     private static LuceneMorphology rusMorphology, engMorphology;
-    private static SaveLemmaClass saveLemmaClass;
+    private static SaveLemmaAndIndex saveLemmaAndIndex;
 
     {
         try {
-            saveLemmaClass = new SaveLemmaClass();
+            saveLemmaAndIndex = new SaveLemmaAndIndex();
             engMorphology = new EnglishLuceneMorphology();
             rusMorphology = new RussianLuceneMorphology();
         } catch (IOException e) {
@@ -42,24 +43,25 @@ public class MorphologyService {
     private static final String ENGLISH = "[a-zA-Z-]{2,}";
     private static final String UNNECESSARYSYMBOLS = "[^А-Яа-яa-zA-Z’\\- ]";
 
-    public static void processPage(String text, WebSite webSite, String url) {
-        Map<String, Integer> countLemma = countLemma(cleanWebPage(text));
-        List<Lemma> pageLemmas = new ArrayList<>();
-        for (String s : countLemma.keySet()) {
-            pageLemmas.add(Lemma.builder()
-                    .frequency(1)
-                    .lemma(s)
-                    .webSite(webSite)
-                    .build());
-        }
-        saveLemmaClass.saveLemmas(webSite, pageLemmas, url);
+    public static void processPage(Page currentPage) {
+        if(!currentPage.getCode().equals(200))
+            return;
+        Map<String, Integer> countLemma = countLemma(cleanWebPage(currentPage.getContent()));
+        saveLemmaAndIndex.execute(countLemma, currentPage);
     }
 
-    private class SaveLemmaClass {
-        @Transactional
-        private void saveLemmas(WebSite webSite, List<Lemma> pageLemmas, String url) {
-            long duration = System.currentTimeMillis();
-            List<Lemma> repoLemmas = lemmaRepository.findByWebSite(webSite);
+    private class SaveLemmaAndIndex {
+        private void execute(Map<String, Integer> countLemma, Page currentPage) {
+            List<Lemma> pageLemmas = new ArrayList<>();
+            for (String s : countLemma.keySet()) {
+                pageLemmas.add(Lemma.builder()
+                        .frequency(1)
+                        .lemma(s)
+                        .webSite(currentPage.getWebSite())
+                        .build());
+            }
+            List<Lemma> repoLemmas = lemmaRepository.findByWebSite(currentPage.getWebSite());
+            List<Index> indexList = new ArrayList<>();
             for (Lemma pageLemma : pageLemmas) {
                 if (repoLemmas.contains(pageLemma)) {
                     int idxLemma = repoLemmas.indexOf(pageLemma);
@@ -69,9 +71,37 @@ public class MorphologyService {
                     repoLemmas.add(pageLemma);
                 }
             }
+            repoLemmas = saveLemmas(repoLemmas);
+            for(Lemma pageLemma : repoLemmas){
+                Integer lemmaRank = countLemma.get(pageLemma.getLemma());
+                if (lemmaRank != null) {
+                    indexList.add(Index.builder()
+                            .page(currentPage)
+                            .lemma(pageLemma)
+                            .rank(lemmaRank)
+                            .build());
+                }
+            }
+            saveIndexes(indexList);
+        }
+
+        @Transactional
+        private List<Lemma> saveLemmas(List<Lemma> repoLemmas) {
+            long start = System.currentTimeMillis();
             lemmaRepository.saveAll(repoLemmas);
-            duration = System.currentTimeMillis() - duration;
-            log.debug("Lemmas saving finished for link " + url + ". Duration : " + duration);
+            long end = System.currentTimeMillis() - start;
+            log.debug("Save time of lemmas  for webSite: " + repoLemmas.get(0).getWebSite().getUrl() + " equal " +
+                    end + " ms");
+            return repoLemmas;
+        }
+        @Transactional
+        private List<Index> saveIndexes(List<Index> indexList) {
+            long start = System.currentTimeMillis();
+            indexRepository.saveAll(indexList);
+            long end = System.currentTimeMillis() - start;
+            log.debug("Save time of indexes for page: " + indexList.get(0).getPage().getPath() + " equal " +
+                    end + " ms");
+            return indexList;
         }
     }
 

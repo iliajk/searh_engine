@@ -11,8 +11,8 @@ import searchengine.model.entities.WebSite;
 public interface WebSiteRepository extends JpaRepository<WebSite, Long> {
     @Modifying
     @Transactional
-    @Query("DELETE FROM WebSite s WHERE s.url LIKE :url% OR s.name = :name")
-    void removeSiteInfo(String url, String name);
+    @Query("DELETE FROM WebSite")
+    void removeAll();
 
 
 }

@@ -20,7 +20,7 @@ import java.util.Objects;
 @Table(name = "site")
 public class WebSite {
     @Id
-    @GeneratedValue(strategy = GenerationType.AUTO)
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
     Long id;
     Status status;
     @UpdateTimestamp
