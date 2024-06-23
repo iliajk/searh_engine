@@ -8,6 +8,7 @@ import org.jsoup.HttpStatusException;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
@@ -51,7 +52,6 @@ public class StatisticsServiceImpl implements StatisticsService {
     private final PageRepository pageRepository;
     private final WebSiteRepository webSiteRepository;
     private final IndexRepository indexRepository;
-    private final Random random = new Random();
     private final IndexingSettings sites;
     private final int processors = Runtime.getRuntime().availableProcessors();
     private ForkJoinPool fjp = new ForkJoinPool(processors);
@@ -64,43 +64,40 @@ public class StatisticsServiceImpl implements StatisticsService {
 
     @Override
     public ResponseEntity<?> getStatistics() {
-        String[] statuses = {"INDEXED", "FAILED", "INDEXING"};
-        String[] errors = {
-                "Ошибка индексации: главная страница сайта не доступна",
-                "Ошибка индексации: сайт не доступен",
-                ""
-        };
-
+        List<WebSite> dbListWebSites = webSiteRepository.findAll();
+        if(dbListWebSites.isEmpty()){
+            return ResponseEntity.status(HttpStatus.NO_CONTENT).body("WebSites not indexed, please complete indexing first");
+        }
         TotalStatistics total = new TotalStatistics();
-        total.setSites(sites.getSites().size());
-        total.setIndexing(true);
+        total.setSites(dbListWebSites.size());
+        total.setIndexing(indexingInProgress);
+        List<DetailedStatisticsItem> detailedStatistics = new ArrayList<>();
 
-        List<DetailedStatisticsItem> detailed = new ArrayList<>();
-        List<Site> sitesList = sites.getSites();
-        for (int i = 0; i < sitesList.size(); i++) {
-            Site site = sitesList.get(i);
+        for (WebSite site : dbListWebSites) {
             DetailedStatisticsItem item = new DetailedStatisticsItem();
             item.setName(site.getName());
             item.setUrl(site.getUrl());
-            int pages = random.nextInt(1_000);
-            int lemmas = pages * random.nextInt(1_000);
+            int pages = pageRepository.countAllByWebSiteName(site.getName());
+            int lemmas = lemmaRepository.countAllByWebSiteName(site.getName());
             item.setPages(pages);
             item.setLemmas(lemmas);
-            item.setStatus(statuses[i % 3]);
-            item.setError(errors[i % 3]);
-            item.setStatusTime(System.currentTimeMillis() -
-                    (random.nextInt(10_000)));
+            item.setStatus(site.getStatus());
+            item.setError(site.getLast_error());
+            item.setStatusTime(site.getStatusTime());
             total.setPages(total.getPages() + pages);
             total.setLemmas(total.getLemmas() + lemmas);
-            detailed.add(item);
+            detailedStatistics.add(item);
         }
 
-        StatisticsResponse response = new StatisticsResponse();
-        StatisticsData data = new StatisticsData();
-        data.setTotal(total);
-        data.setDetailed(detailed);
-        response.setStatistics(data);
-        response.setResult(true);
+        StatisticsData data = StatisticsData.builder()
+                .detailed(detailedStatistics)
+                .total(total)
+                .build();
+        StatisticsResponse response = StatisticsResponse.builder()
+                .statistics(data)
+                .result(true)
+                .build();
+
         return ResponseEntity.ok().body(response);
     }
 
@@ -141,20 +138,18 @@ public class StatisticsServiceImpl implements StatisticsService {
 
         for (WebSite webSite : webSiteList) {
             try {
-                totalPages = new HashSet<>();
                 WebSiteRecursiveTask webSiteRecursiveTask = new WebSiteRecursiveTask(webSite, webSite.getUrl());
                 WebSiteRecursiveTask.setWebSiteRepository(webSiteRepository);
-                WebSiteRecursiveTask.setLemmaRepository(lemmaRepository);
                 fjp.execute(webSiteRecursiveTask);
-                totalPages.addAll(webSiteRecursiveTask.join());
-                webSite.setStatus(Status.INDEXED);
-                webSiteRepository.save(webSite);
+                totalPages = new HashSet<>(webSiteRecursiveTask.join());
                 totalPages.forEach(page -> {
                     if (page.getCode() != 200) {
                         page.getWebSite().setLast_error(page.getContent());
                         webSiteRepository.save(page.getWebSite());
                     }
                 });
+                webSite.setStatus(Status.INDEXED);
+                webSiteRepository.save(webSite);
                 List<Page> repoPages = pageRepository.saveAll(totalPages);
                 repoPages.forEach(MorphologyService::processPage);
             } catch (Throwable e) {

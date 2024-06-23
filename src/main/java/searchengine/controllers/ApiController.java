@@ -19,17 +19,17 @@ public class ApiController {
         return statisticsService.getStatistics();
     }
 
-    @GetMapping("/api/startIndexing")
+    @GetMapping("/startIndexing")
     public ResponseEntity<?> startIndexing() {
         return statisticsService.startIndexing();
     }
 
-    @GetMapping("/api/stopIndexing")
+    @GetMapping("/stopIndexing")
     public ResponseEntity<?> stopIndexing() {
         return statisticsService.stopIndexing();
     }
 
-    @PostMapping("/api/IndexPage")
+    @PostMapping("/IndexPage")
     public ResponseEntity<?> indexPage(@RequestParam String url) {
         return statisticsService.indexPage(url);
     }

@@ -8,7 +8,6 @@ import org.jsoup.select.Elements;
 import searchengine.model.entities.Page;
 import searchengine.model.entities.WebSite;
 import searchengine.model.enums.Status;
-import searchengine.model.repositories.LemmaRepository;
 import searchengine.model.repositories.WebSiteRepository;
 
 import java.io.IOException;
@@ -20,7 +19,6 @@ import java.util.concurrent.RecursiveTask;
 @Slf4j
 public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
     private static WebSiteRepository webSiteRepository;
-    private static LemmaRepository lemmaRepository;
     public static String USERAGENT;
     public static String REFERRER;
     // all link which we found
@@ -97,7 +95,7 @@ public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
                     }
                 } else if (str.matches(SUBDOMAINLINK)) {
                     String siteUrl = webSite.getUrl();
-                    str = str.charAt(0) == '/' && siteUrl.charAt(siteUrl.length() - 1) == '/'?
+                    str = str.charAt(0) == '/' && siteUrl.charAt(siteUrl.length() - 1) == '/' ?
                             webSite.getUrl() + str.substring(1) :
                             webSite.getUrl() + str;
                     if (!totalLinksSet.contains(str)) {
@@ -117,12 +115,11 @@ public class WebSiteRecursiveTask extends RecursiveTask<HashSet<Page>> {
         }
         return localPages;
     }
+
     public static void setWebSiteRepository(WebSiteRepository webSiteRepository) {
         WebSiteRecursiveTask.webSiteRepository = webSiteRepository;
     }
-    public static void setLemmaRepository(LemmaRepository lemmaRepository) {
-        WebSiteRecursiveTask.lemmaRepository = lemmaRepository;
-    }
+
     public static void resetTotalLinkSet() {
         totalLinksSet = new HashSet<>();
     }

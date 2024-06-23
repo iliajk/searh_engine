@@ -7,6 +7,8 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import searchengine.model.entities.WebSite;
 
+import java.util.List;
+
 @Repository
 public interface WebSiteRepository extends JpaRepository<WebSite, Long> {
     @Modifying
@@ -14,5 +16,7 @@ public interface WebSiteRepository extends JpaRepository<WebSite, Long> {
     @Query("DELETE FROM WebSite")
     void removeAll();
 
+    @Query("SELECT w FROM WebSite w")
+    List<WebSite> findAll();
 
 }
